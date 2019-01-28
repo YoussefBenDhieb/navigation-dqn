@@ -2,23 +2,24 @@ import numpy as np
 import random
 from collections import namedtuple, deque
 
-from model import QNetwork
-from per import Memory
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+from model import QNetwork
+from per import Memory
+
 BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 64         # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 1e-3              # for soft update of target parameters
-LR = 5e-4               # learning rate 
-UPDATE_EVERY = 4     # how often to update the network
+BATCH_SIZE = 64  # minibatch size
+GAMMA = 0.99  # discount factor
+TAU = 1e-3  # for soft update of target parameters
+LR = 5e-4  # learning rate
+UPDATE_EVERY = 4  # how often to update the network
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class Agent():
+
+class Agent:
     """Interacts with and learns from the environment."""
 
     def __init__(self, state_size, action_size, seed):
@@ -35,34 +36,37 @@ class Agent():
         self.seed = random.seed(seed)
 
         # Q-Network
-        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
-        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
+        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(
+            device
+        )
+        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(
+            device
+        )
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
         # Replay memory
         self.memory = Memory(BUFFER_SIZE, BATCH_SIZE)
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
-    
+
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
         self.memory.add(state, action, reward, next_state, done)
-        
+
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % UPDATE_EVERY
         if self.t_step == 0:
-            # If enough samples are available in memory, get random subset and learn
+            # If enough samples are available in memory, get random 
+            # subset and learn
             if self.memory.is_populated():
                 experiences, tree_idx, ISWeights = self.memory.sample()
                 self.learn(experiences, tree_idx, ISWeights, GAMMA)
-
 
     def step_pretrain(self, state, action, reward, next_state, done):
         # Save experience in replay memory
         self.memory.add(state, action, reward, next_state, done)
 
-
-    def act(self, state, eps=0.):
+    def act(self, state, eps=0.0):
         """Returns actions for given state as per current policy.
         
         Params
@@ -83,22 +87,31 @@ class Agent():
             return random.choice(np.arange(self.action_size))
 
     def learn(self, experiences, tree_idx, ISWeights, gamma):
-        """Update value parameters using given batch of experience tuples.
+        """Update value parameters using given batch of experience 
+        tuples.
 
         Params
         ======
-            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
+            experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', 
+                                               done) tuples 
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
 
-        ## TODO: compute and minimize the loss
-        "*** YOUR CODE HERE ***"
-        # Get argmax of predicted Q values (for next states) from local model
-        expected_next_actions = self.qnetwork_local(next_states).detach().max(1)[1].unsqueeze(1)
-        # Get predicted Q values (for next states) from argmax of target model
-        Q_targets_next = self.qnetwork_target(next_states).detach().gather(1, expected_next_actions)
-        # Compute Q targets for current states 
+        ## Compute and minimize the loss
+        # Get argmax of predicted Q values (for next states) from local 
+        # model
+        expected_next_actions = (
+            self.qnetwork_local(next_states).detach().max(1)[1].unsqueeze(1)
+        )
+        # Get predicted Q values (for next states) from argmax of target
+        #  model
+        Q_targets_next = (
+            self.qnetwork_target(next_states)
+            .detach()
+            .gather(1, expected_next_actions)
+        )
+        # Compute Q targets for current states
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
@@ -108,15 +121,21 @@ class Agent():
         ISWeights_t = torch.from_numpy(ISWeights).float().to(device)
         loss = torch.mean(ISWeights_t * (Q_expected - Q_targets) ** 2)
         # Update priority
-        self.memory.batch_update(tree_idx, np.abs(Q_expected.detach().data.cpu().numpy()[0] - Q_targets.detach().data.cpu().numpy()[0]))
+        self.memory.batch_update(
+            tree_idx,
+            np.abs(
+                Q_expected.detach().data.cpu().numpy()[0]
+                - Q_targets.detach().data.cpu().numpy()[0]
+            ),
+        )
 
         # Minimize the loss
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # ------------------- update target network ------------------- #
-        self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)                     
+        # ------------------- update target network -------------------#
+        self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
@@ -128,7 +147,9 @@ class Agent():
             target_model (PyTorch model): weights will be copied to
             tau (float): interpolation parameter 
         """
-        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
-
-        
+        for target_param, local_param in zip(
+            target_model.parameters(), local_model.parameters()
+        ):
+            target_param.data.copy_(
+                tau * local_param.data + (1.0 - tau) * target_param.data
+            )
